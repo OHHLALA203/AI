@@ -33,7 +33,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.tree import DecisionTreeClassifier
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 SEED = 2026  # 비교 중 seed shopping 방지: UI에서 변경하지 않는다.
 DATA_URL = "https://archive.ics.uci.edu/static/public/45/data.csv"
 DATA_SHA = "868cd646a53ffbc55611192bae7496911a163937c185710f6b8aa11549b88df1"
@@ -161,13 +161,34 @@ def metrics(y, scores, threshold: float) -> dict:
             "TN": int(tn), "FP": int(fp), "FN": int(fn), "TP": int(tp), "N": len(y)}
 
 
+def threshold_table(y, scores, thresholds) -> pd.DataFrame:
+    """모든 임계값의 혼동행렬을 한 번에 계산; 임계값과 무관한 AUC는 한 번만 계산."""
+    y, scores, thresholds = np.asarray(y), np.asarray(scores), np.asarray(thresholds)
+    predicted = scores[:, None] >= thresholds[None, :]
+    positive = y[:, None] == 1
+    tp = (predicted & positive).sum(axis=0)
+    fp = (predicted & ~positive).sum(axis=0)
+    fn = (positive & ~predicted).sum(axis=0)
+    tn = (~positive & ~predicted).sum(axis=0)
+    def divide(a, b):
+        return np.divide(a, b, out=np.full(a.shape, np.nan, dtype=float), where=np.asarray(b) != 0)
+    auc = float(roc_auc_score(y, scores)) if len(np.unique(y)) == 2 else float("nan")
+    return pd.DataFrame({"임계값": thresholds, "전체 오류율": divide(fp+fn, len(y)),
+        "정확도": divide(tp+tn, len(y)), "민감도": divide(tp, tp+fn),
+        "특이도": divide(tn, tn+fp), "위음성률": divide(fn, tp+fn),
+        "위양성률": divide(fp, tn+fp), "양성예측도": divide(tp, tp+fp),
+        "ROC-AUC": auc, "TN": tn, "FP": fp, "FN": fn, "TP": tp, "N": len(y)})
+
+
 def select_threshold(y, scores, target: float) -> tuple[float, dict]:
     """개발 OOF에서 목표 민감도를 만족하는 가장 큰 임계값 → 최소 위양성률.
     점수가 같을 때 >= 규칙을 일관되게 사용한다. 테스트에서 목표 달성 보장 아님.
     """
     candidates = np.unique(np.r_[0., scores, 1.])
-    feasible = [(float(t), metrics(y, scores, float(t))) for t in candidates]
-    return max((item for item in feasible if item[1]["민감도"] >= target), key=lambda item: item[0])
+    table = threshold_table(y, scores, candidates)
+    feasible = table.loc[table["민감도"] >= target]
+    chosen = float(feasible.iloc[-1]["임계값"])
+    return chosen, metrics(y, scores, chosen)
 
 
 def final_evaluate(df: pd.DataFrame, cfg: dict, model: str, threshold: float) -> dict:
@@ -316,8 +337,7 @@ def main():
         with a:
             show_matrix(m, "oof_matrix")
         with b:
-            curve = pd.DataFrame([{"임계값": float(t), **metrics(y, score, float(t))}
-                                  for t in np.linspace(0, 1, 101)])
+            curve = threshold_table(y, score, np.linspace(0, 1, 101))
             fig = px.line(curve, x="임계값", y=["전체 오류율", "위음성률", "위양성률"],
                           labels={"value": "비율", "variable": "지표"})
             fig.add_vline(x=threshold, line_dash="dash")
