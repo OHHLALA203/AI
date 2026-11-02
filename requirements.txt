@@ -1,0 +1,6 @@
+# Tested with Python 3.12. Streamlit automatically detects this plural filename.
+streamlit==1.41.1
+numpy==2.3.5
+pandas==2.2.3
+scikit-learn==1.8.0
+plotly==5.24.1
