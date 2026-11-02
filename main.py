@@ -1,300 +1,430 @@
-import streamlit as st
-import streamlit.components.v1 as components
-import textwrap
+"""Heart AI Lab — 연구용 Cleveland 이진 분류 실험실.
 
-st.set_page_config(
-    page_title="파동 반사: 물리 시뮬레이터",
-    page_icon="〰️",
-    layout="wide",
-)
-
-st.markdown(
-    """
-    <style>
-      .block-container { padding-top: 1rem; padding-bottom: 1rem; max-width: 1200px; }
-      iframe { border: 0; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.title("〰️ 파동 반사: 물리 시뮬레이터")
-st.write(
-    "고정단과 자유단에서 파동이 어떻게 반사되는지 관찰해 보세요. "
-    "움직임은 브라우저 안에서 직접 그리므로, 매 프레임마다 Streamlit이나 그래프를 다시 불러오지 않습니다."
-)
-
-html = r"""
-<!doctype html>
-<html lang="ko">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-  :root { color-scheme: light; --ink:#202833; --muted:#617080; --line:#d9e0e7; --panel:#f6f8fa; }
-  * { box-sizing:border-box; }
-  html, body { margin:0; padding:0; background:transparent; color:var(--ink); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
-  .wrap { width:100%; padding:2px 2px 8px; }
-  .controls { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:0 0 10px; }
-  .control { border:1px solid var(--line); border-radius:12px; background:#fff; padding:10px 12px; min-width:0; }
-  label, .control-title { display:block; font-size:13px; color:var(--muted); margin-bottom:7px; font-weight:600; }
-  select, input[type=range] { width:100%; }
-  select { border:1px solid #cbd4de; border-radius:8px; background:#fff; min-height:36px; padding:4px 7px; color:var(--ink); font-size:14px; }
-  input[type=range] { accent-color:#2587cc; cursor:pointer; }
-  .number { font-size:13px; font-weight:700; color:var(--ink); float:right; }
-  .buttons { display:flex; flex-wrap:wrap; gap:7px; }
-  button { appearance:none; border:1px solid #cbd4de; background:#fff; color:#243343; border-radius:9px; padding:9px 12px; min-height:38px; font-size:14px; font-weight:650; cursor:pointer; }
-  button:hover { background:#f0f5f9; }
-  button.primary { color:#fff; background:#2379b8; border-color:#2379b8; }
-  button.primary:hover { background:#1b679e; }
-  button.selected { box-shadow:inset 0 0 0 2px #2587cc; border-color:#2587cc; }
-  .speed-row { display:flex; gap:6px; flex-wrap:wrap; }
-  .speed-row button { flex:1; padding:7px 6px; min-width:62px; }
-  .chart-box { border:1px solid var(--line); border-radius:14px; overflow:hidden; background:#fff; }
-  canvas { display:block; width:100%; height:390px; }
-  .timebar { padding:10px 14px 12px; border-top:1px solid var(--line); }
-  .time-label { display:flex; justify-content:space-between; align-items:center; font-size:13px; color:var(--muted); gap:10px; }
-  .readouts { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:10px 0; }
-  .metric { border:1px solid var(--line); border-radius:10px; padding:10px 12px; min-width:0; }
-  .metric .name { color:var(--muted); font-size:12px; margin-bottom:5px; }
-  .metric .value { font-size:18px; font-weight:750; overflow-wrap:anywhere; }
-  .note { border-radius:10px; background:#f3f7fb; color:#3a4c5e; padding:10px 12px; font-size:13px; line-height:1.55; }
-  .model { margin-top:12px; padding:12px 14px; border:1px solid var(--line); border-radius:12px; font-size:13px; line-height:1.65; color:#465564; background:#fff; }
-  .model strong { color:#263746; }
-  @media (max-width:700px) {
-    .controls { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
-    canvas { height:320px; }
-    .readouts { grid-template-columns:repeat(2,minmax(0,1fr)); }
-    .metric .value { font-size:16px; }
-    button { padding:8px 10px; }
-  }
-</style>
-</head>
-<body>
-<div class="wrap">
-  <div class="controls">
-    <div class="control">
-      <label for="boundary">줄 끝 조건</label>
-      <select id="boundary"><option value="fixed">고정단</option><option value="free">자유단</option></select>
-    </div>
-    <div class="control">
-      <label for="tension">장력 <span class="number" id="tensionValue">40 N</span></label>
-      <input id="tension" type="range" min="10" max="80" value="40" step="1">
-    </div>
-    <div class="control">
-      <label for="density">선밀도 <span class="number" id="densityValue">25 g/m</span></label>
-      <input id="density" type="range" min="10" max="80" value="25" step="1">
-    </div>
-    <div class="control">
-      <div class="control-title">재생 속도</div>
-      <div class="speed-row">
-        <button type="button" data-speed="0.25">0.25×</button>
-        <button type="button" data-speed="0.5">0.5×</button>
-        <button type="button" data-speed="1" class="selected">1×</button>
-        <button type="button" data-speed="2">2×</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="buttons" style="margin:0 0 10px;">
-    <button id="play" class="primary" type="button">▶ 재생</button>
-    <button id="pause" type="button">Ⅱ 일시 정지</button>
-    <button id="reset" type="button">↺ 초기화</button>
-    <span id="status" style="align-self:center;color:var(--muted);font-size:13px;margin-left:3px;">일시 정지</span>
-  </div>
-
-  <div class="chart-box">
-    <canvas id="waveCanvas" aria-label="입사파, 반사파, 합성파 그래프"></canvas>
-    <div class="timebar">
-      <div class="time-label"><label for="timeSlider" style="margin:0;">시간</label><span id="timeValue">0.0 ms</span></div>
-      <input id="timeSlider" type="range" min="0" max="100" value="0" step="0.1" aria-label="시뮬레이션 시간">
-    </div>
-  </div>
-
-  <div class="readouts">
-    <div class="metric"><div class="name">이상적인 파동 속력</div><div class="value" id="waveSpeed">40.00 m/s</div></div>
-    <div class="metric"><div class="name">입사파 중심 위치</div><div class="value" id="incidentPosition">0.50 m</div></div>
-    <div class="metric"><div class="name">반사파 중심 위치*</div><div class="value" id="reflectedPosition">3.50 m</div></div>
-    <div class="metric"><div class="name">끝점 변위</div><div class="value" id="endpointDisplacement">0.000 cm</div></div>
-  </div>
-
-  <div class="note" id="physicsNote">고정단에서는 끝점의 변위가 0이 되도록 반사파의 부호가 바뀝니다. (반사 계수 r = −1)</div>
-  <div class="model">
-    <strong>사용한 물리 모델</strong><br>
-    줄의 길이 L = 2 m, 초기 입사 펄스 중심 x₀ = 0.5 m, 진폭 A = 0.03 m, 폭 매개변수 σ = 0.13 m입니다.<br>
-    파동 속력은 <strong>v = √(T/μ)</strong>로 계산하며, 화면의 선밀도 g/m를 kg/m로 변환합니다.<br>
-    입사파와 끝점에서 반사된 파동을 중첩한 이상적 모델입니다. 감쇠, 비선형 효과, 왼쪽 끝에서의 추가 반사는 고려하지 않습니다.<br>
-    * 반사파 중심 위치는 줄 바깥까지 수학적으로 연장한 값일 수 있습니다.
-  </div>
-</div>
-
-<script>
-(() => {
-  'use strict';
-  const L = 2.0, x0 = 0.5, A = 0.03, sigma = 0.13;
-  const canvas = document.getElementById('waveCanvas');
-  const ctx = canvas.getContext('2d', { alpha: false });
-  const boundaryInput = document.getElementById('boundary');
-  const tensionInput = document.getElementById('tension');
-  const densityInput = document.getElementById('density');
-  const timeSlider = document.getElementById('timeSlider');
-  const playBtn = document.getElementById('play');
-  const pauseBtn = document.getElementById('pause');
-  const resetBtn = document.getElementById('reset');
-  const status = document.getElementById('status');
-  const speedButtons = [...document.querySelectorAll('[data-speed]')];
-  let playing = false, speedFactor = 1, timeMs = 0, lastStamp = null;
-  let waveSpeed = 40, maxTimeMs = 97.5, dirty = true;
-  let cssWidth = 900, cssHeight = 390, dpr = 1;
-
-  const fmt = (v, n=2) => Number(v).toFixed(n);
-  function recalc() {
-    const tension = Number(tensionInput.value);
-    const densityGm = Number(densityInput.value);
-    const mu = densityGm / 1000;
-    waveSpeed = Math.sqrt(tension / mu);
-    maxTimeMs = Math.max(20, Math.min(350, ((2 * L - x0) / waveSpeed) * 1000 + 10));
-    timeMs = Math.min(timeMs, maxTimeMs);
-    document.getElementById('tensionValue').textContent = `${tension} N`;
-    document.getElementById('densityValue').textContent = `${densityGm} g/m`;
-    document.getElementById('waveSpeed').textContent = `${fmt(waveSpeed)} m/s`;
-    timeSlider.max = String(maxTimeMs);
-    timeSlider.value = String(timeMs);
-    dirty = true;
-  }
-
-  function resizeCanvas() {
-    const box = canvas.getBoundingClientRect();
-    cssWidth = Math.max(300, box.width);
-    cssHeight = Math.max(280, box.height);
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(cssWidth * dpr);
-    canvas.height = Math.round(cssHeight * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    dirty = true;
-  }
-
-  function draw() {
-    const W = cssWidth, H = cssHeight;
-    ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
-    const left = 48, right = 18, top = 26, bottom = 42;
-    const pw = W - left - right, ph = H - top - bottom;
-    const yMin = -0.065, yMax = 0.065;
-    const xPx = x => left + (x / L) * pw;
-    const yPx = y => top + ((yMax - y) / (yMax - yMin)) * ph;
-    const t = timeMs / 1000;
-    const r = boundaryInput.value === 'fixed' ? -1 : 1;
-    const inc = x => A * Math.exp(-Math.pow(x - x0 - waveSpeed*t, 2) / (2*sigma*sigma));
-    const ref = x => r * A * Math.exp(-Math.pow(2*L - x - x0 - waveSpeed*t, 2) / (2*sigma*sigma));
-
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = '#e6ebf0';
-    ctx.fillStyle = '#617080'; ctx.font = '12px system-ui, sans-serif';
-    for (let xv=0; xv<=L+1e-6; xv+=0.5) {
-      const xx = xPx(xv); ctx.beginPath(); ctx.moveTo(xx, top); ctx.lineTo(xx, H-bottom); ctx.stroke();
-      ctx.textAlign = 'center'; ctx.fillText(xv.toFixed(1), xx, H-19);
-    }
-    for (let yv=-0.06; yv<=0.0601; yv+=0.03) {
-      const yy = yPx(yv); ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(W-right, yy); ctx.stroke();
-      ctx.textAlign = 'right'; ctx.fillText((yv*100).toFixed(0), left-9, yy+4);
-    }
-    ctx.fillStyle = '#4e5d6b'; ctx.textAlign = 'center'; ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText('줄의 위치 (m)', left + pw/2, H-3);
-    ctx.save(); ctx.translate(13, top+ph/2); ctx.rotate(-Math.PI/2); ctx.fillText('변위 (cm)', 0, 0); ctx.restore();
-    // Endpoint marker: fixed end is a solid wall; free end is shown with a dashed marker.
-    ctx.beginPath(); ctx.moveTo(xPx(L), top); ctx.lineTo(xPx(L), H-bottom);
-    ctx.strokeStyle = '#d98225'; ctx.lineWidth = boundaryInput.value === 'fixed' ? 4 : 2;
-    ctx.setLineDash(boundaryInput.value === 'fixed' ? [] : [6,5]); ctx.stroke(); ctx.setLineDash([]);
-    function drawLine(fn, color, width, dash=[]) {
-      ctx.beginPath();
-      const count = Math.max(220, Math.min(420, Math.round(pw * 0.48)));
-      for (let i=0; i<count; i++) {
-        const x = (i/(count-1))*L;
-        const y = fn(x)*100; // convert metres to centimetres
-        if (i===0) ctx.moveTo(xPx(x), yPx(y/100)); else ctx.lineTo(xPx(x), yPx(y/100));
-      }
-      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
-    }
-    drawLine(x => inc(x)+ref(x), '#2587cc', 3);
-    drawLine(inc, '#149688', 1.8);
-    drawLine(ref, '#d98225', 1.8, [6,4]);
-    // Compact legend.
-    const items = [ ['합성파','#2587cc',[]], ['입사파','#149688',[]], ['반사파','#d98225',[5,4]] ];
-    ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'left';
-    let lx = left, ly = 15;
-    for (const [label,color,dash] of items) {
-      ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx+18, ly); ctx.strokeStyle=color; ctx.lineWidth=2.5; ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
-      ctx.fillStyle='#3f4d5a'; ctx.fillText(label,lx+23,ly+4); lx += 23 + ctx.measureText(label).width + 14;
-    }
-    // Readouts. End-point displacement is evaluated from the two overlapping pulses.
-    const incidentCenter = x0 + waveSpeed*t;
-    const reflectedCenter = 2*L - x0 - waveSpeed*t;
-    const endValue = (1+r)*A*Math.exp(-Math.pow(L-x0-waveSpeed*t,2)/(2*sigma*sigma));
-    document.getElementById('incidentPosition').textContent = `${fmt(incidentCenter)} m`;
-    document.getElementById('reflectedPosition').textContent = `${fmt(reflectedCenter)} m`;
-    document.getElementById('endpointDisplacement').textContent = `${fmt(endValue*100,3)} cm`;
-    document.getElementById('timeValue').textContent = `${fmt(timeMs,1)} ms`;
-    document.getElementById('physicsNote').textContent = r < 0
-      ? '고정단: 끝점의 변위가 0이 되도록 반사파의 부호가 바뀝니다. (반사 계수 r = −1)'
-      : '자유단: 끝점의 기울기가 0이 되도록 반사파가 같은 부호로 진행합니다. (반사 계수 r = +1)';
-    dirty = false;
-  }
-
-  function setPlaying(value) {
-    playing = value; lastStamp = null;
-    status.textContent = playing ? `재생 중 · ${speedFactor}×` : '일시 정지';
-    playBtn.disabled = playing; pauseBtn.disabled = !playing;
-    playBtn.style.opacity = playing ? '.55' : '1'; pauseBtn.style.opacity = playing ? '1' : '.55';
-  }
-  function tick(stamp) {
-    if (playing) {
-      if (lastStamp !== null) {
-        // Limit huge time jumps after tab switching, preventing sudden skipping.
-        const delta = Math.min((stamp-lastStamp)/1000, 0.05);
-        timeMs += delta*1000*speedFactor;
-        if (timeMs >= maxTimeMs) timeMs = 0;
-        timeSlider.value = String(timeMs);
-        dirty = true;
-      }
-      lastStamp = stamp;
-    } else {
-      lastStamp = null;
-    }
-    if (dirty) draw();
-    requestAnimationFrame(tick);
-  }
-
-  boundaryInput.addEventListener('change', () => { dirty = true; });
-  tensionInput.addEventListener('input', recalc);
-  densityInput.addEventListener('input', recalc);
-  timeSlider.addEventListener('input', () => {
-    timeMs = Number(timeSlider.value); dirty = true;
-    // Keep playback continuous after scrubbing.
-    lastStamp = null;
-  });
-  playBtn.addEventListener('click', () => setPlaying(true));
-  pauseBtn.addEventListener('click', () => setPlaying(false));
-  resetBtn.addEventListener('click', () => {
-    setPlaying(false); timeMs = 0; timeSlider.value = '0'; dirty = true;
-  });
-  speedButtons.forEach(btn => btn.addEventListener('click', () => {
-    speedFactor = Number(btn.dataset.speed);
-    speedButtons.forEach(b => b.classList.toggle('selected', b===btn));
-    status.textContent = playing ? `재생 중 · ${speedFactor}×` : '일시 정지';
-  }));
-  if ('ResizeObserver' in window) new ResizeObserver(resizeCanvas).observe(canvas);
-  else window.addEventListener('resize', resizeCanvas);
-  recalc(); resizeCanvas(); setPlaying(false); requestAnimationFrame(tick);
-})();
-</script>
-</body>
-</html>
+근거: Akella & Akella (2021), DOI 10.2144/fsoa-2020-0206;
+UCI Heart Disease, DOI 10.24432/C52P4X;
+scikit-learn threshold tuning / common pitfalls / Pipeline documentation.
+논문 아이디어를 확장한 독립 Python 구현이며, 논문의 정확한 재현이 아니다.
+실행: python -m streamlit run main.py (Python 3.12 권장)
 """
+from __future__ import annotations
 
-components.html(textwrap.dedent(html), height=850, scrolling=False)
+import hashlib
+import io
+import json
+import platform
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.request import Request, urlopen
 
-st.caption(
-    "부드러운 재생을 위해 그래프를 브라우저 Canvas로 직접 그리며, "
-    "각 프레임마다 Streamlit 전체를 다시 실행하거나 외부 그래프 라이브러리를 호출하지 않습니다."
-)
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import sklearn
+import streamlit as st
+from sklearn.base import clone
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
+from sklearn.model_selection import StratifiedKFold, train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.tree import DecisionTreeClassifier
+
+APP_VERSION = "1.0.0"
+SEED = 2026  # 비교 중 seed shopping 방지: UI에서 변경하지 않는다.
+DATA_URL = "https://archive.ics.uci.edu/static/public/45/data.csv"
+DATA_SHA = "868cd646a53ffbc55611192bae7496911a163937c185710f6b8aa11549b88df1"
+FEATURES = ["age", "sex", "cp", "trestbps", "chol", "fbs", "restecg",
+            "thalach", "exang", "oldpeak", "slope", "ca", "thal"]
+NUMERIC = ["age", "trestbps", "chol", "thalach", "oldpeak"]
+LABELS = dict(zip(FEATURES, ["나이 (년)", "성별 (원자료 코드)", "흉통 유형",
+    "안정 시 혈압 (mmHg)", "혈청 콜레스테롤 (mg/dL)", "공복혈당 >120 mg/dL 여부",
+    "안정 시 심전도", "운동 중 최대 심박수", "운동 유발 협심증", "운동 시 ST 하강",
+    "운동 시 ST 기울기", "형광투시로 관찰된 주요 혈관 수", "탈륨 검사 결과"]))
+MODELS = {"LR": "로지스틱 회귀", "DT": "의사결정나무", "RF": "랜덤포레스트"}
+BASE = ["age", "sex", "cp", "trestbps", "chol", "fbs", "restecg"]
+PRESETS = {"전체 13개": FEATURES, "기본 정보·검사 7개": BASE,
+           "운동검사 포함 11개": [f for f in FEATURES if f not in ("ca", "thal")]}
+RATE_KEYS = ["전체 오류율", "정확도", "민감도", "특이도", "위음성률", "위양성률", "양성예측도"]
+SOURCES = [
+    ("UCI Heart Disease", "https://doi.org/10.24432/C52P4X",
+     "공식 Cleveland 데이터·변수 사전·num 이진화. 데이터 CC BY 4.0."),
+    ("Detrano et al. (1989)", "https://pubmed.ncbi.nlm.nih.gov/2756873/",
+     "관상동맥조영술 대상 환자 자료의 배경과 집단 간 일반화 한계."),
+    ("Akella & Akella (2021)", "https://pmc.ncbi.nlm.nih.gov/articles/PMC8147740/",
+     "Cleveland 모델 비교, LR 기준 임계값 0.5, RF 기본 나무 수 500을 참고."),
+    ("scikit-learn: threshold tuning", "https://scikit-learn.org/stable/modules/classification_threshold.html",
+     "학습 점수와 최종 판정 분리. 임계값 탐색은 개발 자료에서만 수행."),
+    ("scikit-learn: common pitfalls", "https://scikit-learn.org/stable/common_pitfalls.html",
+     "Pipeline을 이용한 학습 구간 내부 전처리와 평가 자료 분리."),
+    ("scikit-learn: cross-validation", "https://scikit-learn.org/stable/modules/cross_validation.html",
+     "층화 5-fold와 학습에서 제외된 사례의 OOF 예측."),
+]
+
+
+def parse_data(raw: bytes) -> pd.DataFrame:
+    """실험용 원자료를 고정한다. 다른 데이터/잘못된 인코딩을 조용히 허용하지 않는다."""
+    if hashlib.sha256(raw).hexdigest() != DATA_SHA:
+        raise ValueError("공식 데이터의 저장된 SHA-256과 다릅니다. 원본 파일·출처를 확인하세요.")
+    df = pd.read_csv(io.BytesIO(raw), na_values=["?", "", "NA"])
+    if df.shape != (303, 14) or df.columns.tolist() != FEATURES + ["num"]:
+        raise ValueError("Cleveland 303×14 스키마가 아닙니다.")
+    df = df.apply(pd.to_numeric, errors="raise")
+    if df["num"].isna().any() or not df["num"].isin(range(5)).all():
+        raise ValueError("목표 변수 num이 잘못되었습니다.")
+    return df
+
+
+@st.cache_data(show_spinner=False)
+def load_data() -> pd.DataFrame:
+    local = Path(__file__).parent / "data" / "cleveland_uci.csv"
+    if local.exists():
+        return parse_data(local.read_bytes())
+    # main.py와 requirements.txt 두 파일만 업로드해도 공식 서버에서 읽는다.
+    req = Request(DATA_URL, headers={"User-Agent": "HeartAILab/1.0 research"})
+    with urlopen(req, timeout=25) as response:
+        raw = response.read()
+    return parse_data(raw)
+
+
+def split_ids(df: pd.DataFrame):
+    y = (df["num"] > 0).astype(int)
+    return train_test_split(np.arange(len(df)), test_size=0.20,
+                            stratify=y, random_state=SEED)
+
+
+def make_pipeline(model: str, features: list[str], params: dict) -> Pipeline:
+    if not features or not set(features).issubset(FEATURES):
+        raise ValueError("유효한 입력 변수를 하나 이상 선택하세요.")
+    numeric = [f for f in features if f in NUMERIC]
+    categorical = [f for f in features if f not in NUMERIC]
+    transformers = []
+    if numeric:
+        transformers.append(("numeric", Pipeline([
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scale", StandardScaler())]), numeric))
+    if categorical:
+        transformers.append(("categorical", Pipeline([
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("encode", OneHotEncoder(handle_unknown="ignore", sparse_output=False))]), categorical))
+    if model == "LR":
+        estimator = LogisticRegression(C=params["C"], max_iter=5000,
+                                       solver="lbfgs", random_state=SEED)
+    elif model == "DT":
+        estimator = DecisionTreeClassifier(max_depth=params["depth"],
+            min_samples_leaf=params["leaf"], random_state=SEED)
+    elif model == "RF":
+        estimator = RandomForestClassifier(n_estimators=params["trees"],
+            max_depth=params["depth"], min_samples_leaf=params["leaf"],
+            random_state=SEED, n_jobs=1)
+    else:
+        raise ValueError("지원하지 않는 모델입니다.")
+    return Pipeline([("preprocess", ColumnTransformer(transformers)), ("model", estimator)])
+
+
+@st.cache_data(show_spinner=False, max_entries=12)
+def run_experiment(df: pd.DataFrame, config_json: str) -> dict:
+    """개발 자료만으로 OOF 예측. 테스트 라벨/예측은 반환하지 않는다."""
+    cfg = json.loads(config_json)
+    dev_ids, test_ids = split_ids(df)
+    X = df.loc[dev_ids, cfg["features"]].reset_index(drop=True)
+    y = (df.loc[dev_ids, "num"] > 0).astype(int).to_numpy()
+    folds = list(StratifiedKFold(5, shuffle=True, random_state=SEED).split(X, y))
+    predictions, fold_numbers = {}, np.zeros(len(y), dtype=int)
+    for number, (_, val) in enumerate(folds, 1):
+        fold_numbers[val] = number
+    for name in cfg["models"]:
+        pipeline = make_pipeline(name, cfg["features"], cfg["params"])
+        oof = np.full(len(y), np.nan)
+        for train, val in folds:
+            fitted = clone(pipeline).fit(X.iloc[train], y[train])
+            oof[val] = fitted.predict_proba(X.iloc[val])[:, 1]
+        if not np.isfinite(oof).all():
+            raise ValueError("평가 예측값에 결측/무한대가 있습니다.")
+        predictions[name] = oof
+    return {"y": y, "scores": predictions, "dev_ids": dev_ids,
+            "folds": fold_numbers, "test_n": len(test_ids), "config": cfg}
+
+
+def metrics(y, scores, threshold: float) -> dict:
+    y, scores = np.asarray(y), np.asarray(scores)
+    tn, fp, fn, tp = confusion_matrix(y, scores >= threshold, labels=[0, 1]).ravel()
+    ratio = lambda a, b: float(a / b) if b else float("nan")
+    return {"전체 오류율": ratio(fp + fn, len(y)), "정확도": ratio(tp + tn, len(y)),
+            "민감도": ratio(tp, tp + fn), "특이도": ratio(tn, tn + fp),
+            "위음성률": ratio(fn, tp + fn), "위양성률": ratio(fp, tn + fp),
+            "양성예측도": ratio(tp, tp + fp),
+            "ROC-AUC": float(roc_auc_score(y, scores)) if len(np.unique(y)) == 2 else float("nan"),
+            "TN": int(tn), "FP": int(fp), "FN": int(fn), "TP": int(tp), "N": len(y)}
+
+
+def select_threshold(y, scores, target: float) -> tuple[float, dict]:
+    """개발 OOF에서 목표 민감도를 만족하는 가장 큰 임계값 → 최소 위양성률.
+    점수가 같을 때 >= 규칙을 일관되게 사용한다. 테스트에서 목표 달성 보장 아님.
+    """
+    candidates = np.unique(np.r_[0., scores, 1.])
+    feasible = [(float(t), metrics(y, scores, float(t))) for t in candidates]
+    return max((item for item in feasible if item[1]["민감도"] >= target), key=lambda item: item[0])
+
+
+def final_evaluate(df: pd.DataFrame, cfg: dict, model: str, threshold: float) -> dict:
+    dev_ids, test_ids = split_ids(df)
+    estimator = make_pipeline(model, cfg["features"], cfg["params"])
+    estimator.fit(df.loc[dev_ids, cfg["features"]], (df.loc[dev_ids, "num"] > 0).astype(int))
+    scores = estimator.predict_proba(df.loc[test_ids, cfg["features"]])[:, 1]
+    y = (df.loc[test_ids, "num"] > 0).astype(int).to_numpy()
+    return {"model": model, "threshold": threshold, "config": cfg,
+            "metrics": metrics(y, scores, threshold), "y": y, "scores": scores,
+            "ids": test_ids, "time": datetime.now(timezone.utc).isoformat()}
+
+
+def wilson(k: int, n: int) -> tuple[float, float]:
+    if not n:
+        return float("nan"), float("nan")
+    z = 1.959963984540054
+    p, denom = k / n, 1 + z * z / n
+    center = (p + z * z / (2 * n)) / denom
+    half = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    return max(0., center - half), min(1., center + half)
+
+
+def rate_table(rows):
+    table = pd.DataFrame(rows)
+    formats = {k: "{:.1%}" for k in RATE_KEYS if k in table}
+    if "ROC-AUC" in table:
+        formats["ROC-AUC"] = "{:.3f}"
+    return table.style.format(formats, na_rep="정의 불가")
+
+
+def show_matrix(m: dict, key: str):
+    fig = px.imshow([[m["TN"], m["FP"]], [m["FN"], m["TP"]]],
+        x=["예측 음성", "예측 양성"], y=["실제 음성", "실제 양성"],
+        text_auto=True, color_continuous_scale="Blues", aspect="auto")
+    fig.update_layout(height=320, margin=dict(t=15, b=20), coloraxis_showscale=False)
+    st.plotly_chart(fig, use_container_width=True, key=key)
+    st.caption(f"위음성: {m['FN']}/{m['TP']+m['FN']}명 · 위양성: {m['FP']}/{m['TN']+m['FP']}명")
+
+
+def source_panel():
+    st.subheader("논문·공식 문서와 구현의 연결")
+    for title, url, applied in SOURCES:
+        st.markdown(f"**[{title}]({url})** — {applied}")
+    st.markdown("""
+**논문과 달라진 설계**
+
+- 원논문은 결측 사례 6개를 제외했다. 이 앱은 303개를 유지하고 각 fold의 학습 자료에서만 결측값을 대체한다.
+- 원논문의 R 코드·분할·6종 모델을 그대로 복제하지 않았다. Python의 3종 모델, 고정 80:20 분할,
+  개발 자료 5-fold OOF 평가를 사용한다. 논문의 수치를 이 앱의 실행 결과처럼 표시하지 않는다.
+- 명목형 코드를 연속 수치로 간주하지 않고 one-hot 처리한다. 숫자형은 학습 fold에서 표준화한다.
+- 판정 규칙은 `score >= threshold`이다. 논문 LR 설명의 `> 0.5`와 경계에서 다를 수 있다.
+- 모델의 출력값은 보정되지 않은 예측 점수다. 실제 질환 확률로 단정하지 않는다.
+
+**해석의 범위**
+
+과거 검사 대상자의 관상동맥질환 분류 연구용이다. 일반인의 미래 심장질환 위험이나 개인 진단에
+적용하지 않는다. `ca`, `thal` 등 전문 검사 정보가 포함되어 있어 문진만으로 조기진단했다는
+결론을 내릴 수 없다. 변수 제거 효과는 인과관계가 아니다. 작은 표본, 단일 출처, 여러 설정의
+반복 탐색 때문에 탐색 최고 점수는 낙관적일 수 있다. 독립 외부 검증은 수행하지 않았다.
+
+**데이터 저작자·라이선스**
+
+Janosi, A., Steinbrunn, W., Pfisterer, M., & Detrano, R. Heart Disease [Dataset].
+UCI Machine Learning Repository. DOI: 10.24432/C52P4X.
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+원본 CSV는 변경 없이 사용하고 앱 내부에서 목표 이진화·학습용 전처리를 수행한다.
+""")
+
+
+def main():
+    st.set_page_config(page_title="Heart AI Lab", page_icon="🫀", layout="wide")
+    st.title("🫀 Heart AI Lab")
+    st.markdown("**같은 데이터, 다른 판단.** 모델·입력 정보·임계값에 따른 오류를 직접 비교하세요.")
+    st.caption("연구·교육용 / 개인 진단 기능 없음 / UCI Cleveland / 근거와 차이점은 ‘자료·방법’ 탭")
+    try:
+        df = load_data()
+    except Exception as exc:
+        st.error(f"데이터를 읽지 못했습니다: {exc}")
+        st.info("ZIP의 data/cleveland_uci.csv를 main.py 옆 data 폴더에 함께 올리세요. 가상 자료로 대체하지 않습니다.")
+        return
+    for key, initial in [("history", []), ("run", None), ("final", None)]:
+        if key not in st.session_state:
+            st.session_state[key] = initial
+
+    st.sidebar.header("실험 설정")
+    preset = st.sidebar.selectbox("입력 변수 프리셋", list(PRESETS), key="preset")
+    if st.session_state.get("last_preset") != preset:
+        st.session_state["features"] = PRESETS[preset].copy()
+        st.session_state["last_preset"] = preset
+    with st.sidebar.form("training"):
+        names = st.multiselect("비교 모델", list(MODELS), default=list(MODELS),
+                               format_func=MODELS.get, key="models")
+        features = st.multiselect("학습에 포함할 변수", FEATURES,
+                                  format_func=lambda f: f"{f} · {LABELS[f]}", key="features")
+        with st.expander("고급 설정"):
+            C = st.select_slider("LR: C (작을수록 강한 규제)", [0.01, 0.1, 1., 10., 100.], value=1., key="C")
+            trees = st.select_slider("RF: 나무 수", [100, 300, 500], value=500, key="trees")
+            depth = st.selectbox("DT·RF: 최대 깊이", [3, 5, 8, None], index=1,
+                                 format_func=lambda x: "제한 없음" if x is None else str(x), key="depth")
+            leaf = st.slider("DT·RF: 말단 최소 표본 수", 1, 10, 2, key="leaf")
+        submitted = st.form_submit_button("학습 및 비교", type="primary")
+    st.sidebar.caption("설정을 바꾸면 ‘학습 및 비교’를 누르세요. 임계값 변경은 재학습하지 않습니다.")
+    cfg = {"features": [f for f in FEATURES if f in features],
+           "models": [m for m in MODELS if m in names],
+           "params": {"C": C, "trees": trees, "depth": depth, "leaf": leaf}}
+    if submitted:
+        if not features or not names:
+            st.sidebar.error("모델과 입력 변수를 각각 하나 이상 선택하세요.")
+        else:
+            try:
+                with st.spinner("각 학습 구간에서 전처리·학습 중입니다…"):
+                    st.session_state["run"] = run_experiment(df, json.dumps(cfg, sort_keys=True))
+            except Exception as exc:
+                st.error(f"학습 실패: {exc}. 이전 성공 결과가 있다면 그대로 표시합니다.")
+    tabs = st.tabs(["임계값 실험", "모델·기록 비교", "최종 평가", "자료·방법"])
+    with tabs[3]:
+        source_panel()
+        st.dataframe(pd.DataFrame({"변수": FEATURES, "설명": [LABELS[f] for f in FEATURES],
+            "처리": ["중앙값 대체·표준화" if f in NUMERIC else "최빈값 대체·one-hot" for f in FEATURES],
+            "원자료 결측 수": [int(df[f].isna().sum()) for f in FEATURES]}), hide_index=True)
+        st.code(f"data SHA-256: {DATA_SHA}\n분할 seed: {SEED}\n앱: {APP_VERSION}\nscikit-learn: {sklearn.__version__}")
+    run = st.session_state["run"]
+    if run is None:
+        with tabs[0]:
+            st.info("왼쪽에서 조건을 선택한 뒤 ‘학습 및 비교’를 누르세요.")
+            st.markdown("1. 기본 설정으로 학습\n2. 임계값 0.3·0.5·0.7 비교\n3. 모델 변경\n4. 입력 변수군 변경\n5. 설정 확정 후 최종 평가")
+        return
+    cfg = run["config"]  # 화면의 미적용 설정이 아니라 실제 학습 조건만 사용
+    y = run["y"]
+    run_id = hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()[:12]
+    if st.session_state["final"] is not None:
+        st.warning("최종 테스트가 이미 공개되었습니다. 이후 탐색 결과는 새 독립 검증이 아니며, 최종 결과는 최초 설정으로 고정됩니다.")
+    with tabs[0]:
+        st.caption(f"실행 {run_id} · 개발 OOF {len(y)}명 · 최종 보관 {run['test_n']}명 · 입력 {len(cfg['features'])}개")
+        st.write("**적용된 변수:** " + ", ".join(cfg["features"]))
+        if st.session_state.get("focus") not in cfg["models"]:
+            st.session_state["focus"] = cfg["models"][0]
+        focus = st.selectbox("자세히 볼 모델", cfg["models"], format_func=MODELS.get, key="focus")
+        threshold = st.slider("양성 판정 임계값 (점수 ≥ 임계값이면 양성)", 0., 1., 0.5, 0.01, key="threshold")
+        score = run["scores"][focus]
+        m = metrics(y, score, threshold)
+        for col, label in zip(st.columns(5), ["전체 오류율", "민감도", "특이도", "위음성률", "위양성률"]):
+            col.metric(label, f"{m[label]:.1%}")
+        a, b = st.columns([1, 1.6])
+        with a:
+            show_matrix(m, "oof_matrix")
+        with b:
+            curve = pd.DataFrame([{"임계값": float(t), **metrics(y, score, float(t))}
+                                  for t in np.linspace(0, 1, 101)])
+            fig = px.line(curve, x="임계값", y=["전체 오류율", "위음성률", "위양성률"],
+                          labels={"value": "비율", "variable": "지표"})
+            fig.add_vline(x=threshold, line_dash="dash")
+            fig.update_yaxes(range=[0, 1], tickformat=".0%")
+            st.plotly_chart(fig, use_container_width=True, key="threshold_curve")
+        st.caption("위음성률=FN/(TP+FN), 위양성률=FP/(TN+FP). 임계값만 바꾸면 ROC-AUC는 변하지 않습니다.")
+        hypothesis = st.text_input("이번 실험의 가설·관찰 메모", key="hypothesis",
+                                   placeholder="예: 같은 민감도 목표에서 RF의 위양성률이 더 낮을까?")
+        folds = []
+        for k in range(1, 6):
+            mask = run["folds"] == k
+            folds.append({"fold": k, **metrics(y[mask], score[mask], threshold)})
+        with st.expander("5개 평가 구간의 변동 확인"):
+            st.dataframe(rate_table(folds), hide_index=True)
+            st.caption("전체 OOF 지표는 예측을 합쳐 계산합니다. fold들은 학습 자료를 공유하므로 독립 반복실험으로 해석하지 않습니다.")
+        if st.button("현재 조건의 모든 모델 결과 기록", key="save"):
+            for name, scores in run["scores"].items():
+                st.session_state["history"].append({"시각_UTC": datetime.now(timezone.utc).isoformat(),
+                    "실행": run_id, "평가": "개발 OOF", "모델": MODELS[name], "임계값": threshold,
+                    "가설_관찰": hypothesis,
+                    "입력변수": ",".join(cfg["features"]), "설정": json.dumps(cfg["params"], ensure_ascii=False),
+                    "최종공개이후": st.session_state["final"] is not None,
+                    "seed": SEED, "data_sha256": DATA_SHA, "sklearn": sklearn.__version__,
+                    **metrics(y, scores, threshold)})
+            st.success("기록했습니다. ‘모델·기록 비교’ 탭에서 다운로드하세요.")
+    with tabs[1]:
+        st.subheader(f"같은 임계값 {threshold:.2f}에서 비교")
+        rows = [{"모델": MODELS[name], **metrics(y, scores, threshold)} for name, scores in run["scores"].items()]
+        st.dataframe(rate_table(rows), hide_index=True, use_container_width=True)
+        fig = px.bar(pd.DataFrame(rows), x="모델", y=["전체 오류율", "위음성률", "위양성률"],
+                     barmode="group", labels={"value": "비율", "variable": "지표"})
+        fig.update_yaxes(range=[0, 1], tickformat=".0%")
+        st.plotly_chart(fig, use_container_width=True, key="models_bar")
+        roc = go.Figure()
+        for name, scores in run["scores"].items():
+            fpr, tpr, _ = roc_curve(y, scores)
+            roc.add_trace(go.Scatter(x=fpr, y=tpr, mode="lines", name=f"{MODELS[name]} AUC={roc_auc_score(y,scores):.3f}"))
+            mm = metrics(y, scores, threshold)
+            roc.add_trace(go.Scatter(x=[mm["위양성률"]], y=[mm["민감도"]], mode="markers",
+                marker=dict(size=11), name=f"{MODELS[name]} 현재 기준"))
+        roc.add_shape(type="line", x0=0, y0=0, x1=1, y1=1, line=dict(dash="dash", color="gray"))
+        roc.update_layout(xaxis_title="위양성률", yaxis_title="민감도")
+        st.plotly_chart(roc, use_container_width=True, key="roc")
+        st.subheader("같은 민감도 목표에서 비교")
+        target = st.slider("탐구용 목표 민감도 (임상 기준 아님)", 0.70, 1.00, 0.90, 0.01, key="target")
+        suggested = {}
+        target_rows = []
+        for name, scores in run["scores"].items():
+            t, mm = select_threshold(y, scores, target)
+            suggested[name] = t
+            target_rows.append({"모델": MODELS[name], "선택 임계값": t, **mm})
+        st.dataframe(rate_table(target_rows), hide_index=True)
+        st.caption("OOF에서 목표를 만족하는 가장 큰 임계값을 선택합니다. 테스트에서 같은 민감도를 보장하지 않습니다.")
+        st.subheader("실험 기록")
+        if st.session_state["history"]:
+            history = pd.DataFrame(st.session_state["history"])
+            st.dataframe(rate_table(history), hide_index=True)
+            st.download_button("실험 기록 CSV", history.to_csv(index=False).encode("utf-8-sig"),
+                               "experiment_history.csv", "text/csv")
+        else:
+            st.info("임계값 실험 탭에서 결과를 기록하세요.")
+        export = pd.DataFrame({"원자료행번호_0부터": run["dev_ids"], "fold": run["folds"], "실제양성": y})
+        for name, scores in run["scores"].items():
+            export[f"{name}_score"] = scores
+        st.download_button("현재 OOF 예측 CSV", export.to_csv(index=False).encode("utf-8-sig"), "oof_predictions.csv", "text/csv")
+    with tabs[2]:
+        st.subheader("설정 확정 후 한 번 평가")
+        st.write("모델·변수·임계값 선택이 끝난 뒤에만 실행하세요. 현재 세션에서는 최초 결과를 고정합니다.")
+        st.caption("새로고침·다른 세션으로 잠금이 초기화될 수 있습니다. 다시 평가해도 새로운 독립 테스트가 되지 않습니다. 기록은 다운로드하세요.")
+        if st.session_state["final"] is None:
+            chosen = st.selectbox("최종 모델", cfg["models"], format_func=MODELS.get, key="final_model")
+            mode = st.radio("최종 임계값 선택", ["현재 슬라이더 값", "목표 민감도 기준 OOF 선택값"], key="final_mode")
+            final_t = threshold if mode == "현재 슬라이더 값" else suggested[chosen]
+            st.write(f"**확정 예정:** {MODELS[chosen]}, 임계값 {final_t:.6f}, 변수 {len(cfg['features'])}개")
+            consent = st.checkbox("설정을 확정했고, 결과를 보고 다시 최적화하면 독립 평가가 아니라는 점을 이해했습니다.", key="confirm")
+            if st.button("확정하고 최종 테스트 공개", disabled=not consent, key="finalize"):
+                try:
+                    with st.spinner("개발 자료 전체로 재학습한 뒤 보관한 테스트를 평가합니다…"):
+                        st.session_state["final"] = final_evaluate(df, cfg, chosen, float(final_t))
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"최종 평가 실패: {exc}")
+        if st.session_state["final"] is not None:
+            result = st.session_state["final"]
+            fm = result["metrics"]
+            st.success(f"고정된 최종 결과: {MODELS[result['model']]} / 임계값 {result['threshold']:.6f}")
+            st.write("입력 변수: " + ", ".join(result["config"]["features"]))
+            st.dataframe(rate_table([fm]), hide_index=True)
+            show_matrix(fm, "final_matrix")
+            intervals = []
+            for label, k, n in [("정확도", fm["TP"]+fm["TN"], fm["N"]),
+                                ("민감도", fm["TP"], fm["TP"]+fm["FN"]),
+                                ("특이도", fm["TN"], fm["TN"]+fm["FP"])]:
+                low, high = wilson(k, n)
+                intervals.append({"지표": label, "성공/분모": f"{k}/{n}", "95% Wilson 구간": f"{low:.1%} ~ {high:.1%}"})
+            st.dataframe(intervals, hide_index=True)
+            st.caption("구간은 고정된 모델·테스트 표본의 비율 불확실성만 나타냅니다. 학습 변동·모델 선택·외부 일반화는 포함하지 않습니다.")
+            report = {"app_version": APP_VERSION, "data_url": DATA_URL, "data_sha256": DATA_SHA,
+                      "seed": SEED, "python": platform.python_version(), "sklearn": sklearn.__version__,
+                      **{k: v for k, v in result.items() if k not in ("y", "scores", "ids")},
+                      "test_rows": result["ids"].tolist(), "test_labels": result["y"].tolist(),
+                      "test_scores": result["scores"].tolist(), "sources": SOURCES}
+            # JSON 표준에는 NaN이 없으므로 정의 불가 지표는 null로 변환.
+            report["metrics"] = {k: (None if isinstance(v, float) and not np.isfinite(v) else v) for k,v in fm.items()}
+            st.download_button("최종 결과·조건 JSON", json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False),
+                               "final_report.json", "application/json")
+
+
+if __name__ == "__main__":
+    main()
